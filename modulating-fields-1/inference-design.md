@@ -16,8 +16,14 @@
 
 3) in CausalSelfAttention the use of flash attention needs to be turned off (unless we feel like modifying some PyTorch code) and
    before or after `att = F.softmax(att, dim=-1)` (most likely before, in order to not interfere with softmax normalization)
-   we are going to play with adjusting the attention
+   we are going to play with adjusting the attention (let's consider this as a starting point: we have **A*V**, and the softmax-normalized
+   rows of **A** contain coefficients of linear combinations of rows of **V**; what we can do is to multiply values in each row of **A** by the
+   predicted probability of the token (what's not to like here: 1) not quite clear how to make this correction stronger or weaker,
+   and we would really like to have a parameter controlling this effect; 2) if we are adjusting things pre-softmax, we should be able
+   to use logits directly, rather than using probabilities (**TODO for me:** check the math here; but perhaps we should add logits here
+   instead of multiplying by probabilities (then it's easy to have a multiplicative parameter controlling the effect, and we can store logits
+   instead of computing token probabilities, which is a relatively expensive thing to do for all tokens); **TODO: double-check this**).
 
-4) these probabilities will have to be handled as additional parameters in their respective methods, like `generate` method of `GPT` class
+5) these probabilities will have to be handled as additional parameters in their respective methods, like `generate` method of `GPT` class
    and `forward` methods of `Block` and `CausalSelfAttention` classes (folding them into an existing parameter is not feasible
    for a number of reasons)
