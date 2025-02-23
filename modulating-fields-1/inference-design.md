@@ -25,7 +25,10 @@
    instead of computing token probabilities, which is a relatively expensive thing to do for all tokens); **TODO: double-check this**
    But yes, this does look right: softmax is how one converts logits to probabilities; so if one does a pre-softmax correction, one
    should just add logits to what's there and one should multiply those logits by **epsilon** before adding them to control the strength of
-   this correction).
+   this correction; **but wait a second** logits are computed only up to an additive constant, with probabilities not depending on this
+   additive constant; however, there is no reason for this constant to be the same for different positions in the text; so just taking
+   logits is unlikely to be well-calibrated; it looks like one needs to actually compute logarithms of probabilities instead of just
+   conveniently taking logits **making a note to double-check this a bit more**).
 
 4) these probabilities will have to be handled as additional parameters in their respective methods, like `generate` method of `GPT` class
    and `forward` methods of `Block` and `CausalSelfAttention` classes (folding them into an existing parameter is not feasible
