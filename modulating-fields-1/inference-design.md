@@ -18,5 +18,6 @@
    before or after `att = F.softmax(att, dim=-1)` (most likely before, in order to not interfere with softmax normalization)
    we are going to play with adjusting the attention
 
-4) these probabilities will have to be handled as additional parameters in their respective methods (folding them into an existing parameter is not feasible
+4) these probabilities will have to be handled as additional parameters in their respective methods, like `generate` method of `GPT` class
+   and `forward` methods of `Block` and `CausalSelfAttention` classes (folding them into an existing parameter is not feasible
    for a number of reasons)
