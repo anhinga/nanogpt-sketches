@@ -24,6 +24,6 @@
    instead of multiplying by probabilities (then it's easy to have a multiplicative parameter controlling the effect, and we can store logits
    instead of computing token probabilities, which is a relatively expensive thing to do for all tokens); **TODO: double-check this**).
 
-5) these probabilities will have to be handled as additional parameters in their respective methods, like `generate` method of `GPT` class
+4) these probabilities will have to be handled as additional parameters in their respective methods, like `generate` method of `GPT` class
    and `forward` methods of `Block` and `CausalSelfAttention` classes (folding them into an existing parameter is not feasible
    for a number of reasons)
