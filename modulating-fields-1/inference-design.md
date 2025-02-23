@@ -22,8 +22,11 @@
    and we would really like to have a parameter controlling this effect; 2) if we are adjusting things pre-softmax, we should be able
    to use logits directly, rather than using probabilities (**TODO for me:** check the math here; but perhaps we should add logits here
    instead of multiplying by probabilities (then it's easy to have a multiplicative parameter controlling the effect, and we can store logits
-   instead of computing token probabilities, which is a relatively expensive thing to do for all tokens); **TODO: double-check this**).
+   instead of computing token probabilities, which is a relatively expensive thing to do for all tokens); **TODO: double-check this**
+   But yes, this does look right: softmax is how one converts logits to probabilities; so if one does a pre-softmax correction, one
+   should just add logits to what's there and one should multiply those logits by **epsilon** before adding them to control the strength of
+   this correction).
 
-4) these probabilities will have to be handled as additional parameters in their respective methods, like `generate` method of `GPT` class
+5) these probabilities will have to be handled as additional parameters in their respective methods, like `generate` method of `GPT` class
    and `forward` methods of `Block` and `CausalSelfAttention` classes (folding them into an existing parameter is not feasible
    for a number of reasons)
