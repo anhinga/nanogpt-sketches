@@ -9,7 +9,8 @@
   
   * `generate` should generate its current probabilities for all tokens (an interesting aspect here is that these estimates are non-stationary,
     which is different from standard autoregressive scheme, where past probabilities would not change during recompute, and this is an aspect
-    which we'll need to investigate separately) 
+    which we'll need to investigate separately (first we'll just see if they exhibit a reasonable convergence behavior as one recomputes, and
+    then we'll ponder what to do about it, if the values need to be fixes after one or several iterations (hopefully this will not be needed))) 
 
 2) mini-optimization in lines 184-191 needs to be removed (we are going to compute probabilities for all tokens, and so we need to keep the logits
 
