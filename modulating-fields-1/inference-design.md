@@ -4,8 +4,8 @@
 
   * it needs to accept probability values from the previous transformer run (if this is the first run, we should have some graceful default, like 1)
 
-  * it needs to use those probability values to modify attention computations (so they need to be passed through down to `Block` and `CausalSelfAttention`
-    `forward` methods
+  * it needs to use those probability values to modify attention computations (so they need to be passed through down to `forward` methods of
+    `Block` and `CausalSelfAttention` classes)    
   
   * `generate` should generate its current probabilities for all tokens (an interesting aspect here is that these estimates are non-stationary,
     which is different from standard autoregressive scheme, where past probabilities would not change during recompute, and this is an aspect
