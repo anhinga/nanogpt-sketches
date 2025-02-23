@@ -27,6 +27,6 @@
    should just add logits to what's there and one should multiply those logits by **epsilon** before adding them to control the strength of
    this correction).
 
-5) these probabilities will have to be handled as additional parameters in their respective methods, like `generate` method of `GPT` class
+4) these probabilities will have to be handled as additional parameters in their respective methods, like `generate` method of `GPT` class
    and `forward` methods of `Block` and `CausalSelfAttention` classes (folding them into an existing parameter is not feasible
    for a number of reasons)
