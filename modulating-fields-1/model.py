@@ -49,7 +49,7 @@ class CausalSelfAttention(nn.Module):
             self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                         .view(1, 1, config.block_size, config.block_size))
 
-    def forward(self, x):
+    def forward(self, x, prev_probs=None):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
@@ -65,6 +65,13 @@ class CausalSelfAttention(nn.Module):
         else:
             # manual implementation of attention
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+            # Adjust attention scores based on previous probabilities if provided
+            if prev_probs is not None:
+                epsilon = 0.1  # Adjustable parameter for attention adjustment
+                assert prev_probs.size() == (B, T), f"Expected prev_probs shape ({B}, {T}), got {prev_probs.size()}"
+                adjustment = epsilon * (-torch.log(prev_probs + 1e-10))  # (B, T)
+                adjustment = adjustment.view(B, 1, 1, T)  # Broadcast to (B, 1, 1, T)
+                att = att + adjustment
             att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
@@ -100,8 +107,8 @@ class Block(nn.Module):
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
 
-    def forward(self, x):
-        x = x + self.attn(self.ln_1(x))
+    def forward(self, x, prev_probs=None):
+        x = x + self.attn(self.ln_1(x), prev_probs=prev_probs)
         x = x + self.mlp(self.ln_2(x))
         return x
 
@@ -167,7 +174,7 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx, targets=None, prev_probs=None):
         device = idx.device
         b, t = idx.size()
         assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
@@ -178,7 +185,7 @@ class GPT(nn.Module):
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
         x = self.transformer.drop(tok_emb + pos_emb)
         for block in self.transformer.h:
-            x = block(x)
+            x = block(x, prev_probs=prev_probs)
         x = self.transformer.ln_f(x)
 
         if targets is not None:
@@ -303,63 +310,40 @@ class GPT(nn.Module):
         return mfu
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, prev_probs=None):
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
         the sequence max_new_tokens times, feeding the predictions back into the model each time.
         Most likely you'll want to make sure to be in model.eval() mode of operation for this.
+        Optionally adjust attention based on previous probabilities.
         """
-         # Optionally store context distributions:
-        context_distributions = []  
+        B = idx.size(0)
+        T_init = idx.size(1)
+        if prev_probs is None:
+            prev_probs = torch.ones(B, T_init, device=idx.device)  # Default to uniform if not provided
+
         for _ in range(max_new_tokens):
             # if the sequence context is growing too long we must crop it at block_size
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
-            # Forward pass: obtain logits for all tokens in the context.
-            # 1) forward pass: shape (B, T, vocab_size)
-            logits, _ = self(idx_cond)
-            print("After forward pass, logits shape:", logits.shape)  # e.g., torch.Size([B, T, V])
-             # 2)  Apply temperature scaling to all logits.
-           
-            logits = logits / temperature
-            print("After temperature scaling, logits shape:", logits.shape)  # remains (B, T, V)
+            T_cond = idx_cond.size(1)
+            prev_probs_cond = prev_probs[:, -T_cond:]  # Crop prev_probs to match current context
+            # Forward pass with previous probabilities
+            logits, _ = self(idx_cond, prev_probs=prev_probs_cond)
+            # Use last position's logits for generation
+            logits = logits[:, -1, :] / temperature
 
-             # 3) Optionally apply top-k filtering to each token’s logits.
             if top_k is not None:
-                # For each token, get the top-k values along the vocabulary dimension.
-                # top_k must be applied per step along dimension -1
-                # shape is (B, T, vocab_size), so we do something like:
-                # (B, T) loops or a view-based approach:
-                top_values, _ = torch.topk(logits, k=min(top_k, logits.size(-1)), dim=-1)
-                print("After top_k selection, top_values shape:", top_values.shape)  # shape: (B, T, top_k)
-                
-                # Extract the kth highest value for each token (lowest value among top-k).
-                kth_value = top_values[..., -1, None]
-                print("Kth value shape:", kth_value.shape)  # shape: (B, T, 1)
-                
-                # Set logits lower than kth value to -infinity.
-                logits = torch.where(logits < kth_value,
-                                    torch.full_like(logits, float('-inf')),
-                                    logits)
-                print("After applying top_k filtering, logits shape:", logits.shape)  # still (B, T, V)
-    
-           # 4) Convert the filtered logits to probabilities for every token.
-            probs = F.softmax(logits, dim=-1)
-            print("After softmax, probabilities shape:", probs.shape)  # shape: (B, T, V)
-            # store them maybe 
-            context_distributions.append(probs.clone())
+                v, _ = torch.topk(logits, k=min(top_k, logits.size(-1)), dim=-1)
+                kth_value = v[:, -1, None]
+                logits = torch.where(logits < kth_value, torch.full_like(logits, float('-inf')), logits)
 
-        # 5) sample *next* token from the final position’s distribution
-        #    i.e. the last token in dimension T
-        next_logits = logits[:, -1, :]
-        next_probs = F.softmax(next_logits, dim=-1)
-        idx_next = torch.multinomial(next_probs, num_samples=1)
-        
-        # 6) append that single new token to the sequence
-        idx = torch.cat((idx, idx_next), dim=1)
+            probs = F.softmax(logits, dim=-1)
+            idx_next = torch.multinomial(probs, num_samples=1)
+            p_next = probs.gather(1, idx_next)  # Probability of the sampled token
+            idx = torch.cat((idx, idx_next), dim=1)
+            prev_probs = torch.cat((prev_probs, p_next), dim=1)  # Append new probability
 
         return idx
-import torch
-
 
 ################ Example ################
 # Define a minimal configuration for testing purposes.
@@ -384,6 +368,7 @@ print("Input tokens:", input_tokens)
 logits, loss = model(input_tokens, targets=input_tokens)
 print("Logits shape (training):", logits.shape)  # Expect shape: (B*T, V) because logits are reshaped in loss computation.
 print("Loss:", loss.item() if loss is not None else None)
+
 # Switch the model to evaluation mode for generation.
 model.eval()
 
